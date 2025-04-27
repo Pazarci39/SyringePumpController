@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FTDI FT232RL çipi ESP32'lerde yaygın olarak kullanılır -->
+    <usb-device vendor-id="1027" product-id="24577" /> <!-- FTDI -->
+    <usb-device vendor-id="9025" /> <!-- CH340 -->
+    <usb-device vendor-id="6790" product-id="29987" /> <!-- Silabs CP2102 -->
+
+    <!-- Diğer yaygın USB-Serial dönüştürücüleri -->
+    <usb-device vendor-id="4292" product-id="60000" /> <!-- CP210x -->
+</resources>

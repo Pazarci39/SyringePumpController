@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Şırınga Pompası Kontrolü</string>
+    <string name="speed_value">Hız: %1$d%%</string>
+    <string name="no_usb_connection">USB bağlantısı yok!</string>
+    <string name="connection_status_no_device">Bağlantı Durumu: Uyumlu Cihaz Bulunamadı</string>
+    <string name="connection_status_connected">Bağlantı Durumu: Bağlandı</string>
+    <string name="connection_status_permission_denied">Bağlantı Durumu: İzin Reddedildi</string>
+    <string name="connection_status_disconnected">Bağlantı Durumu: Bağlı Değil</string>
+</resources>
