@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_pump_control"
+            android:icon="@android:drawable/ic_menu_manage"
+            android:title="Pompa Kontrolü" />
+        <item
+            android:id="@+id/nav_graph"
+            android:icon="@android:drawable/ic_menu_gallery"
+            android:title="Grafik Verisi" />
+        <item
+            android:id="@+id/nav_history"
+            android:icon="@android:drawable/ic_menu_recent_history"
+            android:title="Geçmiş Ölçümleri" />
+    </group>
+</menu>

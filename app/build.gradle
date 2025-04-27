@@ -1,21 +1,17 @@
 plugins {
     id 'com.android.application'
 }
-
 android {
     namespace 'com.example.syringepumpcontroller'
     compileSdk 33
-
     defaultConfig {
         applicationId "com.example.syringepumpcontroller"
-        minSdk 23
+        minSdk 24
         targetSdk 33
         versionCode 1
         versionName "1.0"
-
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
-
     buildTypes {
         release {
             minifyEnabled false
@@ -27,12 +23,12 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 }
-
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.8.0'
+    implementation 'com.github.felhr:usbserial:4.5.2'  // Orijinal USB kütüphanesi
+    implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'com.github.felHR85:UsbSerial:6.1.0'
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'  // MPAndroidChart kütüphanesi
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'

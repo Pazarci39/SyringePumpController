@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.MenuItem;
 import android.widget.Button;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -23,12 +24,24 @@ import android.widget.TableRow;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.ActionBarDrawerToggle;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 
-import com.felhr.usbserial.UsbSerialDevice;
-import com.felhr.usbserial.UsbSerialInterface;
+// Eski importlar:
+// import com.felhr.usbserial.UsbSerialDevice;
+// import com.felhr.usbserial.UsbSerialInterface;
 
-import java.io.UnsupportedEncodingException;
+// Yeni importlar:
+import com.hoho.android.usbserial.driver.UsbSerialDriver;
+import com.hoho.android.usbserial.driver.UsbSerialPort;
+import com.hoho.android.usbserial.driver.UsbSerialProber;
+import com.hoho.android.usbserial.util.SerialInputOutputManager;
+import com.google.android.material.navigation.NavigationView;
+
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -39,7 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener {
 
     private static final String TAG = "SyringePumpController";
     private static final String ACTION_USB_PERMISSION = "com.example.syringepumpcontroller.USB_PERMISSION";
@@ -51,6 +64,11 @@ public class MainActivity extends AppCompatActivity {
     private RadioGroup radioGroupDirection;
     private Button btnStart, btnStop;
     private TableLayout tableSensorData;
+
+    // Navigation Drawer
+    private DrawerLayout drawerLayout;
+    private NavigationView navigationView;
+    private Toolbar toolbar;
 
     // USB İletişim için gerekli değişkenler
     private UsbManager usbManager;
@@ -72,6 +90,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Navigation Drawer ve Toolbar kurulumu
+        setupNavigation();
+
         // UI bileşenlerini başlat
         initializeUI();
 
@@ -83,10 +104,30 @@ public class MainActivity extends AppCompatActivity {
         filter.addAction(ACTION_USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-        registerReceiver(usbReceiver, filter);
+        registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
 
         // Cihazı otomatik olarak algılamaya çalış
         findSerialPortDevice();
+    }
+
+    private void setupNavigation() {
+        toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+
+        drawerLayout = findViewById(R.id.drawer_layout);
+        navigationView = findViewById(R.id.nav_view);
+
+        ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(
+                this, drawerLayout, toolbar,
+                R.string.navigation_drawer_open,
+                R.string.navigation_drawer_close);
+        drawerLayout.addDrawerListener(toggle);
+        toggle.syncState();
+
+        navigationView.setNavigationItemSelectedListener(this);
+
+        // Başlangıçta Pompa Kontrolü seçeneğini işaretle
+        navigationView.setCheckedItem(R.id.nav_pump_control);
     }
 
     private void initializeUI() {
@@ -169,11 +210,9 @@ public class MainActivity extends AppCompatActivity {
             deviceFound = true;
 
             // USB izni iste (PendingIntent mutability flag için)
-            int flags;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            } else {
-                flags = 0;
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
             }
 
             PendingIntent pendingIntent = PendingIntent.getBroadcast(
@@ -396,6 +435,33 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     };
+
+    @Override
+    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+
+        if (id == R.id.nav_pump_control) {
+            // Zaten bu sayfadayız, bir şey yapmaya gerek yok
+        } else if (id == R.id.nav_graph) {
+            Intent intent = new Intent(this, GraphActivity.class);
+            startActivity(intent);
+        } else if (id == R.id.nav_history) {
+            Intent intent = new Intent(this, HistoryActivity.class);
+            startActivity(intent);
+        }
+
+        drawerLayout.closeDrawer(GravityCompat.START);
+        return true;
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START);
+        } else {
+            super.onBackPressed();
+        }
+    }
 
     @Override
     protected void onDestroy() {

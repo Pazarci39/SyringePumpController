@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Şırınga Pompası Kontrolü</string>
-    <string name="speed_value">Hız: %1$d%%</string>
+    <string name="app_name">Şırınga Pompa Kontrolü</string>
+
+    <!-- Navigation Drawer -->
+    <string name="navigation_drawer_open">Navigation drawer açık</string>
+    <string name="navigation_drawer_close">Navigation drawer kapalı</string>
+
+    <!-- Bağlantı durumları -->
+    <string name="connection_status_disconnected">USB Cihazı Bağlı Değil</string>
+    <string name="connection_status_connected">USB Cihazı Bağlandı</string>
+    <string name="connection_status_no_device">Uyumlu USB Cihazı Bulunamadı</string>
+    <string name="connection_status_permission_denied">USB İzni Reddedildi</string>
+
+    <!-- Pompa kontrolü -->
+    <string name="speed_value">%d%%</string>
     <string name="no_usb_connection">USB bağlantısı yok!</string>
-    <string name="connection_status_no_device">Bağlantı Durumu: Uyumlu Cihaz Bulunamadı</string>
-    <string name="connection_status_connected">Bağlantı Durumu: Bağlandı</string>
-    <string name="connection_status_permission_denied">Bağlantı Durumu: İzin Reddedildi</string>
-    <string name="connection_status_disconnected">Bağlantı Durumu: Bağlı Değil</string>
 </resources>
