@@ -11,6 +11,7 @@
     <string name="connection_status_connected">USB Cihazı Bağlandı</string>
     <string name="connection_status_no_device">Uyumlu USB Cihazı Bulunamadı</string>
     <string name="connection_status_permission_denied">USB İzni Reddedildi</string>
+    <string name="connection_status_error">Bağlantı hatası</string>
 
     <!-- Pompa kontrolü -->
     <string name="speed_value">%d%%</string>

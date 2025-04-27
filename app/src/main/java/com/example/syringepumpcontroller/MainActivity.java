@@ -31,28 +31,27 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 
-// Eski importlar:
-// import com.felhr.usbserial.UsbSerialDevice;
-// import com.felhr.usbserial.UsbSerialInterface;
-
-// Yeni importlar:
+// hoho kütüphanesinin doğru importları (mik3y)
 import com.hoho.android.usbserial.driver.UsbSerialDriver;
 import com.hoho.android.usbserial.driver.UsbSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 import com.hoho.android.usbserial.util.SerialInputOutputManager;
 import com.google.android.material.navigation.NavigationView;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class MainActivity extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener {
+public class MainActivity extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener, SerialInputOutputManager.Listener {
 
     private static final String TAG = "SyringePumpController";
     private static final String ACTION_USB_PERMISSION = "com.example.syringepumpcontroller.USB_PERMISSION";
@@ -74,7 +73,11 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private UsbManager usbManager;
     private UsbDevice device;
     private UsbDeviceConnection connection;
-    private UsbSerialDevice serialPort;
+
+    // hoho kütüphanesi değişkenleri
+    private UsbSerialPort serialPort;
+    private SerialInputOutputManager serialIoManager;
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
     // Kontrol Değişkenleri
     private boolean isPumpRunning = false;
@@ -104,7 +107,13 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         filter.addAction(ACTION_USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-        registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+
+        // API seviye kontrolü
+        if (Build.VERSION.SDK_INT >= 33) { // TIRAMISU
+            registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbReceiver, filter);
+        }
 
         // Cihazı otomatik olarak algılamaya çalış
         findSerialPortDevice();
@@ -201,24 +210,31 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
         boolean deviceFound = false;
 
+        // USBSerialProber ile kullanılabilir sürücüleri bul
+        UsbSerialProber prober = UsbSerialProber.getDefaultProber();
+
         for (Map.Entry<String, UsbDevice> entry : usbDevices.entrySet()) {
             device = entry.getValue();
-            // Tüm cihazlar için izin iste - S7 Edge'de daha iyi çalışması için
-            Log.d(TAG, "USB cihazı bulundu: " + device.getDeviceName() +
-                    " VID: " + device.getVendorId() +
-                    " PID: " + device.getProductId());
-            deviceFound = true;
+            // Sürücü kontrolü yap
+            UsbSerialDriver driver = prober.probeDevice(device);
 
-            // USB izni iste (PendingIntent mutability flag için)
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                flags |= PendingIntent.FLAG_IMMUTABLE;
+            if (driver != null) {
+                Log.d(TAG, "USB cihazı bulundu: " + device.getDeviceName() +
+                        " VID: " + device.getVendorId() +
+                        " PID: " + device.getProductId());
+                deviceFound = true;
+
+                // USB izni iste (PendingIntent mutability flag için)
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+
+                PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                        this, 0, new Intent(ACTION_USB_PERMISSION), flags);
+                usbManager.requestPermission(device, pendingIntent);
+                break;
             }
-
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    this, 0, new Intent(ACTION_USB_PERMISSION), flags);
-            usbManager.requestPermission(device, pendingIntent);
-            break;
         }
 
         if (!deviceFound) {
@@ -229,46 +245,55 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     // Seri porta bağlan
     private void connectToSerialPort() {
+        // USB bağlantısını aç
         connection = usbManager.openDevice(device);
         if (connection == null) {
             Log.e(TAG, "USB bağlantısı açılamadı");
             return;
         }
 
-        serialPort = UsbSerialDevice.createUsbSerialDevice(device, connection);
+        // Sürücüyü bul
+        UsbSerialProber prober = UsbSerialProber.getDefaultProber();
+        UsbSerialDriver driver = prober.probeDevice(device);
 
-        if (serialPort == null) {
-            Log.e(TAG, "Seri port oluşturulamadı");
+        if (driver == null) {
+            Log.e(TAG, "Sürücü bulunamadı");
             return;
         }
 
-        if (!serialPort.open()) {
-            Log.e(TAG, "Seri port açılamadı");
+        // İlk portu al
+        if (driver.getPorts().size() < 1) {
+            Log.e(TAG, "Seri port bulunamadı");
             return;
         }
 
-        // Seri port ayarları
-        serialPort.setBaudRate(115200); // ESP32 ile 115200 yaygın kullanılır
-        serialPort.setDataBits(UsbSerialInterface.DATA_BITS_8);
-        serialPort.setStopBits(UsbSerialInterface.STOP_BITS_1);
-        serialPort.setParity(UsbSerialInterface.PARITY_NONE);
-        serialPort.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF);
+        serialPort = driver.getPorts().get(0);
 
-        // Veri alma dinleyicisi
-        serialPort.read(mCallback);
+        try {
+            serialPort.open(connection);
+            serialPort.setParameters(115200, UsbSerialPort.DATABITS_8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
 
-        // Bağlantı durumunu güncelle
-        tvConnectionStatus.setText(getString(R.string.connection_status_connected));
-        tvConnectionStatus.setTextColor(Color.GREEN);
+            // Seri port veri alma yöneticisini başlat
+            serialIoManager = new SerialInputOutputManager(serialPort, this);
+            ioExecutor.submit(serialIoManager);
 
-        Log.d(TAG, "Seri port bağlantısı başarılı");
+            // Bağlantı durumunu güncelle
+            tvConnectionStatus.setText(getString(R.string.connection_status_connected));
+            tvConnectionStatus.setTextColor(Color.GREEN);
 
-        // Sensor verilerini okumak için zamanlanmış görev başlat
-        startSensorDataScheduler();
+            Log.d(TAG, "Seri port bağlantısı başarılı");
+
+            // Sensor verilerini okumak için zamanlanmış görev başlat
+            startSensorDataScheduler();
+
+        } catch (IOException e) {
+            Log.e(TAG, "Seri port açma hatası", e);
+        }
     }
 
-    // Seri porttan veri alma geri çağrısı
-    private final UsbSerialInterface.UsbReadCallback mCallback = data -> {
+    // SerialInputOutputManager.Listener implementasyonu
+    @Override
+    public void onNewData(byte[] data) {
         try {
             String dataStr = new String(data, StandardCharsets.UTF_8);
             Log.d(TAG, "Alınan veri: " + dataStr);
@@ -280,7 +305,16 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         } catch (Exception e) {
             Log.e(TAG, "Veri çözme hatası", e);
         }
-    };
+    }
+
+    @Override
+    public void onRunError(Exception e) {
+        Log.e(TAG, "Serial I/O manager hatası", e);
+        mainHandler.post(() -> {
+            tvConnectionStatus.setText(getString(R.string.connection_status_error));
+            tvConnectionStatus.setTextColor(Color.RED);
+        });
+    }
 
     // Sensor verilerini işle ve tabloda göster
     private void processAndDisplaySensorData(final String data) {
@@ -330,7 +364,8 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         }
 
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(() -> {
+        // scheduleWithFixedDelay kullan (tavsiye edilen yöntem)
+        scheduler.scheduleWithFixedDelay(() -> {
             if (serialPort != null) {
                 // Sensor verisi iste
                 sendCommand("GET_SENSOR");
@@ -383,8 +418,12 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private void sendCommand(String command) {
         if (serialPort != null) {
             command += "\n"; // Satır sonu ekle (ESP32 tarafında ayrıştırma için)
-            serialPort.write(command.getBytes());
-            Log.d(TAG, "Gönderilen komut: " + command.trim());
+            try {
+                serialPort.write(command.getBytes(), 1000); // 1000ms timeout
+                Log.d(TAG, "Gönderilen komut: " + command.trim());
+            } catch (IOException e) {
+                Log.e(TAG, "Komut gönderme hatası", e);
+            }
         }
     }
 
@@ -416,25 +455,39 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
                 // USB cihazı çıkarıldı
                 Log.d(TAG, "USB cihazı çıkarıldı");
-                if (serialPort != null) {
-                    serialPort.close();
-                    serialPort = null;
-                }
-
-                if (scheduler != null) {
-                    scheduler.shutdownNow();
-                    scheduler = null;
-                }
-
-                isPumpRunning = false;
-                btnStart.setEnabled(true);
-                btnStop.setEnabled(false);
-
-                tvConnectionStatus.setText(getString(R.string.connection_status_disconnected));
-                tvConnectionStatus.setTextColor(Color.RED);
+                disconnect();
             }
         }
     };
+
+    // Bağlantıyı kapat
+    private void disconnect() {
+        if (serialIoManager != null) {
+            serialIoManager.stop();
+            serialIoManager = null;
+        }
+
+        if (serialPort != null) {
+            try {
+                serialPort.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Seri port kapatma hatası", e);
+            }
+            serialPort = null;
+        }
+
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+            scheduler = null;
+        }
+
+        isPumpRunning = false;
+        btnStart.setEnabled(true);
+        btnStop.setEnabled(false);
+
+        tvConnectionStatus.setText(getString(R.string.connection_status_disconnected));
+        tvConnectionStatus.setTextColor(Color.RED);
+    }
 
     @Override
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
@@ -466,15 +519,16 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     @Override
     protected void onDestroy() {
         // Uygulamadan çıkarken kaynakları temizle
-        if (serialPort != null) {
-            serialPort.close();
+        disconnect();
+
+        try {
+            unregisterReceiver(usbReceiver);
+        } catch (IllegalArgumentException e) {
+            // Receiver zaten kayıtlı değilse
+            Log.d(TAG, "USB receiver zaten kayıtlı değil");
         }
 
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-        }
-
-        unregisterReceiver(usbReceiver);
+        ioExecutor.shutdown();
         super.onDestroy();
     }
 }
