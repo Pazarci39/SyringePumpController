@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
@@ -16,8 +17,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.MenuItem;
-import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.SeekBar;
@@ -58,79 +59,82 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private static final String TAG = "SyringePumpController";
     private static final String ACTION_USB_PERMISSION = "com.example.syringepumpcontroller.USB_PERMISSION";
 
-    // UI Bileşenleri
+
+    // UI Components
     private TextView tvConnectionStatus;
     private SeekBar seekBarSpeed;
     private TextView tvSpeedValue;
     private RadioGroup radioGroupDirection;
-    private Button btnStart, btnStop;
+    private ImageButton btnStart, btnStop; // Changed from Button to ImageButton
     private TableLayout tableSensorData;
-    private EditText editTextNotes; // Notlar için EditText
-    private Button btnShowMeasurements; // Ölçüm kayıtlarını göstermek için buton
+    private EditText editTextNotes;
 
     // Navigation Drawer
     private DrawerLayout drawerLayout;
     private NavigationView navigationView;
     private Toolbar toolbar;
 
-    // USB İletişim için gerekli değişkenler
+    // USB Communication variables
     private UsbManager usbManager;
     private UsbDevice device;
     private UsbDeviceConnection connection;
 
-    // hoho kütüphanesi değişkenleri
+    // hoho library variables
     private UsbSerialPort serialPort;
     private SerialInputOutputManager serialIoManager;
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
-    // Kontrol Değişkenleri
+    // Control Variables
     private boolean isPumpRunning = false;
     private int pumpSpeed = 50;
     private boolean isForwardDirection = true;
 
-    // Veri okuma için zamanlanmış görev
+    // Scheduled task for data reading
     private ScheduledExecutorService scheduler;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // Veritabanı yardımcısı
+    // Database helper
     private DatabaseHelper dbHelper;
 
-    // Ölçüm zamanlaması için değişkenler
-    private long pumpStartTime = 0; // Pompa başlangıç zamanı
-    private float lastSensorValue = 0; // Son okunan sensör değeri
-    private TextView tvDuration; // Süre gösterimi için TextView
+    // Measurement timing variables
+    private long pumpStartTime = 0;
+    private float lastSensorValue = 0;
+    private TextView tvDuration;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Force landscape orientation
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Navigation Drawer ve Toolbar kurulumu
+        // Setup Navigation Drawer and Toolbar
         setupNavigation();
 
-        // UI bileşenlerini başlat
+        // Initialize UI components
         initializeUI();
 
-        // USB yöneticisini başlat
+        // Initialize USB manager
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
-        // USB algılama işleyiciyi kaydet
+        // Register USB detection handler
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
 
-        // API seviye kontrolü
+        // API level check
         if (Build.VERSION.SDK_INT >= 33) { // TIRAMISU
             registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(usbReceiver, filter);
         }
 
-        // Veritabanı yardımcısını başlat
+        // Initialize database helper
         dbHelper = new DatabaseHelper(this);
 
-        // Cihazı otomatik olarak algılamaya çalış
+        // Try to detect device automatically
         findSerialPortDevice();
     }
 
@@ -150,7 +154,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
         navigationView.setNavigationItemSelectedListener(this);
 
-        // Başlangıçta Pompa Kontrolü seçeneğini işaretle
+        // Mark Pump Control option at start
         navigationView.setCheckedItem(R.id.nav_pump_control);
     }
 
@@ -159,36 +163,30 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         seekBarSpeed = findViewById(R.id.seekBarSpeed);
         tvSpeedValue = findViewById(R.id.tvSpeedValue);
         radioGroupDirection = findViewById(R.id.radioGroupDirection);
+
+        // Changed from Button to ImageButton
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
+
         tableSensorData = findViewById(R.id.tableSensorData);
 
-        // Not alanını ve ölçüm kayıtları butonunu bulalım
+        // Find notes field
         editTextNotes = findViewById(R.id.editTextNotes);
-        btnShowMeasurements = findViewById(R.id.btnShowMeasurements);
 
-        // Süre gösterimi için TextView'ı bul (layout'a eklemeniz gerekecek)
+        // Find duration TextView
         tvDuration = findViewById(R.id.tvDuration);
         if (tvDuration != null) {
             tvDuration.setText("00:00:00");
         }
 
-        // Ölçüm kayıtları butonuna tıklama olayı
-        if (btnShowMeasurements != null) {
-            btnShowMeasurements.setOnClickListener(v -> {
-                Intent intent = new Intent(MainActivity.this, MeasurementsActivity.class);
-                startActivity(intent);
-            });
-        }
-
-        // Hız değişim olayı
+        // Speed change event
         seekBarSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 pumpSpeed = progress;
                 tvSpeedValue.setText(getString(R.string.speed_value, progress));
 
-                // Eğer pompa çalışıyorsa, hızı anında güncelle
+                // If pump is running, update speed instantly
                 if (isPumpRunning && serialPort != null) {
                     sendSpeedCommand(progress);
                 }
@@ -201,33 +199,33 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
-        // Yön değişim olayı
+        // Direction change event
         radioGroupDirection.setOnCheckedChangeListener((group, checkedId) -> {
             isForwardDirection = checkedId == R.id.radioForward;
 
-            // Eğer pompa çalışıyorsa, yönü anında güncelle
+            // If pump is running, update direction instantly
             if (isPumpRunning && serialPort != null) {
                 sendDirectionCommand(isForwardDirection);
             }
         });
 
-        // Başlat butonu olayı
+        // Start button event
         btnStart.setOnClickListener(v -> {
             if (serialPort == null) {
                 Toast.makeText(this, R.string.no_usb_connection, Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            // Pompa başlangıç zamanını kaydet
+            // Record pump start time
             pumpStartTime = SystemClock.elapsedRealtime();
 
-            // Süre sayacını başlat
+            // Start duration counter
             startDurationCounter();
 
             startPump();
         });
 
-        // Durdur butonu olayı
+        // Stop button event
         btnStop.setOnClickListener(v -> {
             if (serialPort == null) {
                 Toast.makeText(this, R.string.no_usb_connection, Toast.LENGTH_SHORT).show();
@@ -236,19 +234,19 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
             stopPump();
 
-            // Süre sayacını durdur
+            // Stop duration counter
             stopDurationCounter();
 
-            // Pompa durdurulduğunda ölçümü kaydet
+            // Save measurement when pump stops
             saveMeasurement();
         });
     }
 
-    // Süre sayacı için Handler ve Runnable
+    // Duration counter Handler and Runnable
     private Handler durationHandler = new Handler(Looper.getMainLooper());
     private Runnable durationRunnable;
 
-    // Süre sayacını başlat
+    // Start duration counter
     private void startDurationCounter() {
         if (durationRunnable != null) {
             durationHandler.removeCallbacks(durationRunnable);
@@ -260,7 +258,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                 if (isPumpRunning && tvDuration != null) {
                     long elapsedMillis = SystemClock.elapsedRealtime() - pumpStartTime;
                     updateDurationDisplay(elapsedMillis);
-                    durationHandler.postDelayed(this, 1000); // Her saniye güncelle
+                    durationHandler.postDelayed(this, 1000); // Update every second
                 }
             }
         };
@@ -268,14 +266,14 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         durationHandler.post(durationRunnable);
     }
 
-    // Süre sayacını durdur
+    // Stop duration counter
     private void stopDurationCounter() {
         if (durationRunnable != null) {
             durationHandler.removeCallbacks(durationRunnable);
         }
     }
 
-    // Süre gösterimini güncelle
+    // Update duration display
     private void updateDurationDisplay(long elapsedMillis) {
         if (tvDuration != null) {
             int seconds = (int) (elapsedMillis / 1000) % 60;
@@ -288,18 +286,18 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         }
     }
 
-    // Ölçümü kaydetme metodu
+    // Save measurement method
     private void saveMeasurement() {
         if (pumpStartTime == 0) {
-            Toast.makeText(this, "Ölçüm kaydedilemedi: Geçersiz başlangıç zamanı", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Measurement could not be saved: Invalid start time", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Şu anki tarih ve zamanı alın
+        // Get current date and time
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
         String currentDateTime = sdf.format(new Date());
 
-        // Pompa çalışma süresini hesapla
+        // Calculate pump operation time
         long elapsedMillis = SystemClock.elapsedRealtime() - pumpStartTime;
         int seconds = (int) (elapsedMillis / 1000) % 60;
         int minutes = (int) ((elapsedMillis / (1000 * 60)) % 60);
@@ -308,21 +306,18 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         String duration = String.format(Locale.getDefault(),
                 "%02d:%02d:%02d", hours, minutes, seconds);
 
-        // Not alanı yoksa boş string olarak al
+        // Get notes or use empty string if not available
         String notes = (editTextNotes != null) ? editTextNotes.getText().toString() : "";
 
-        // Akış hızı ve sensör değerlerini al
-        double flowRate = pumpSpeed; // SeekBar'dan alınan hız değeri
+        // Get flow rate
+        double flowRate = pumpSpeed; // From SeekBar
 
-        // Gerçek hacim hesaplama (Hacim = Akış Hızı × Süre / 3600)
-        // Not: Akış hızı ml/saat, süre saniye cinsindendir
-        double totalTimeInHours = elapsedMillis / (1000.0 * 60.0 * 60.0); // milisaniyeyi saate çevir
-        double volume = flowRate * totalTimeInHours; // ml cinsinden hacim
+        // Calculate actual volume (Volume = Flow Rate × Time / 3600)
+        // Note: Flow rate in ml/hour, time in seconds
+        double totalTimeInHours = elapsedMillis / (1000.0 * 60.0 * 60.0); // convert milliseconds to hours
+        double volume = flowRate * totalTimeInHours; // volume in ml
 
-        // Son sensor değerini kullanabilirsiniz (isteğe bağlı)
-        // Alternatif olarak, sensör ölçümlerinden gelen verileri kullanabilirsiniz
-
-        // Ölçüm nesnesi oluştur
+        // Create measurement object
         Measurement measurement = new Measurement(
                 currentDateTime,
                 flowRate,
@@ -331,55 +326,55 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                 notes
         );
 
-        // Veritabanına kaydet
+        // Save to database
         long id = dbHelper.addMeasurement(measurement);
 
         if (id != -1) {
-            Toast.makeText(this, "Ölçüm başarıyla kaydedildi!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Measurement saved successfully!", Toast.LENGTH_SHORT).show();
 
-            // Not alanını temizle (eğer varsa)
+            // Clear notes field if available
             if (editTextNotes != null) {
                 editTextNotes.setText("");
             }
 
-            // Süre gösterimini sıfırla
+            // Reset duration display
             if (tvDuration != null) {
                 tvDuration.setText("00:00:00");
             }
 
-            // Başlangıç zamanını sıfırla
+            // Reset start time
             pumpStartTime = 0;
         } else {
-            Toast.makeText(this, "Ölçüm kaydedilirken hata oluştu!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Error saving measurement!", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // USB cihazını bul
+    // Find USB device
     private void findSerialPortDevice() {
         HashMap<String, UsbDevice> usbDevices = usbManager.getDeviceList();
 
         if (usbDevices.isEmpty()) {
-            Log.d(TAG, "USB cihazı bulunamadı");
+            Log.d(TAG, "No USB device found");
             return;
         }
 
         boolean deviceFound = false;
 
-        // USBSerialProber ile kullanılabilir sürücüleri bul
+        // Find available drivers with USBSerialProber
         UsbSerialProber prober = UsbSerialProber.getDefaultProber();
 
         for (Map.Entry<String, UsbDevice> entry : usbDevices.entrySet()) {
             device = entry.getValue();
-            // Sürücü kontrolü yap
+            // Check driver
             UsbSerialDriver driver = prober.probeDevice(device);
 
             if (driver != null) {
-                Log.d(TAG, "USB cihazı bulundu: " + device.getDeviceName() +
+                Log.d(TAG, "USB device found: " + device.getDeviceName() +
                         " VID: " + device.getVendorId() +
                         " PID: " + device.getProductId());
                 deviceFound = true;
 
-                // USB izni iste (PendingIntent mutability flag için)
+                // Request USB permission (for PendingIntent mutability flag)
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -393,32 +388,32 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         }
 
         if (!deviceFound) {
-            Log.d(TAG, "Uyumlu bir USB cihazı bulunamadı");
+            Log.d(TAG, "No compatible USB device found");
             tvConnectionStatus.setText(getString(R.string.connection_status_no_device));
         }
     }
 
-    // Seri porta bağlan
+    // Connect to serial port
     private void connectToSerialPort() {
-        // USB bağlantısını aç
+        // Open USB connection
         connection = usbManager.openDevice(device);
         if (connection == null) {
-            Log.e(TAG, "USB bağlantısı açılamadı");
+            Log.e(TAG, "Could not open USB connection");
             return;
         }
 
-        // Sürücüyü bul
+        // Find driver
         UsbSerialProber prober = UsbSerialProber.getDefaultProber();
         UsbSerialDriver driver = prober.probeDevice(device);
 
         if (driver == null) {
-            Log.e(TAG, "Sürücü bulunamadı");
+            Log.e(TAG, "Driver not found");
             return;
         }
 
-        // İlk portu al
+        // Get first port
         if (driver.getPorts().size() < 1) {
-            Log.e(TAG, "Seri port bulunamadı");
+            Log.e(TAG, "Serial port not found");
             return;
         }
 
@@ -428,123 +423,123 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             serialPort.open(connection);
             serialPort.setParameters(115200, UsbSerialPort.DATABITS_8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
 
-            // Seri port veri alma yöneticisini başlat
+            // Start serial port data receiver manager
             serialIoManager = new SerialInputOutputManager(serialPort, this);
             ioExecutor.submit(serialIoManager);
 
-            // Bağlantı durumunu güncelle
+            // Update connection status
             tvConnectionStatus.setText(getString(R.string.connection_status_connected));
             tvConnectionStatus.setTextColor(Color.GREEN);
 
-            Log.d(TAG, "Seri port bağlantısı başarılı");
+            Log.d(TAG, "Serial port connection successful");
 
-            // Sensor verilerini okumak için zamanlanmış görev başlat
+            // Start scheduled task to read sensor data
             startSensorDataScheduler();
 
         } catch (IOException e) {
-            Log.e(TAG, "Seri port açma hatası", e);
+            Log.e(TAG, "Error opening serial port", e);
         }
     }
 
-    // SerialInputOutputManager.Listener implementasyonu
+    // SerialInputOutputManager.Listener implementation
     @Override
     public void onNewData(byte[] data) {
         try {
             String dataStr = new String(data, StandardCharsets.UTF_8);
-            Log.d(TAG, "Alınan veri: " + dataStr);
+            Log.d(TAG, "Received data: " + dataStr);
 
-            // Gelen veriyi işle
+            // Process incoming data
             if (dataStr.startsWith("SV:")) { // Sensor Value
-                // Sensor değerini kaydet
+                // Save sensor value
                 try {
                     lastSensorValue = Float.parseFloat(dataStr.substring(3).trim());
                 } catch (NumberFormatException e) {
-                    Log.e(TAG, "Sensor değeri ayrıştırma hatası", e);
+                    Log.e(TAG, "Error parsing sensor value", e);
                 }
 
                 processAndDisplaySensorData(dataStr);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Veri çözme hatası", e);
+            Log.e(TAG, "Error decoding data", e);
         }
     }
 
     @Override
     public void onRunError(Exception e) {
-        Log.e(TAG, "Serial I/O manager hatası", e);
+        Log.e(TAG, "Serial I/O manager error", e);
         mainHandler.post(() -> {
             tvConnectionStatus.setText(getString(R.string.connection_status_error));
             tvConnectionStatus.setTextColor(Color.RED);
         });
     }
 
-    // Sensor verilerini işle ve tabloda göster
+    // Process and display sensor data in table
     private void processAndDisplaySensorData(final String data) {
-        String voltageStr = data.substring(3).trim(); // "SV:" kısmını çıkar
+        String voltageStr = data.substring(3).trim(); // Remove "SV:" part
 
         try {
             final float voltage = Float.parseFloat(voltageStr);
 
-            // Ana iş parçacığında UI güncellemesi yap
+            // UI update on main thread
             mainHandler.post(() -> {
-                // Mevcut tarih/saat
+                // Current date/time
                 String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
 
-                // Yeni tablo satırı oluştur
+                // Create new table row
                 TableRow row = new TableRow(MainActivity.this);
 
-                // Saat sütunu
+                // Time column
                 TextView tvTime = new TextView(MainActivity.this);
                 tvTime.setPadding(8, 8, 8, 8);
                 tvTime.setText(timestamp);
                 row.addView(tvTime);
 
-                // Voltaj sütunu
+                // Voltage column
                 TextView tvVoltage = new TextView(MainActivity.this);
                 tvVoltage.setPadding(8, 8, 8, 8);
                 tvVoltage.setText(String.format(Locale.US, "%.2f", voltage));
                 row.addView(tvVoltage);
 
-                // Tabloya ekle
+                // Add to table
                 tableSensorData.addView(row);
 
-                // En fazla 100 satır göster (bellek yönetimi)
+                // Show maximum 100 rows (memory management)
                 if (tableSensorData.getChildCount() > 100) {
-                    tableSensorData.removeViewAt(1); // Başlık satırı hariç ilk veri satırını sil
+                    tableSensorData.removeViewAt(1); // Remove first data row except header
                 }
             });
 
         } catch (NumberFormatException e) {
-            Log.e(TAG, "Voltaj değerini ayrıştırma hatası", e);
+            Log.e(TAG, "Error parsing voltage value", e);
         }
     }
 
-    // Sensor verilerini almak için zamanlanmış görev
+    // Scheduled task to get sensor data
     private void startSensorDataScheduler() {
         if (scheduler != null && !scheduler.isShutdown()) {
             scheduler.shutdownNow();
         }
 
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        // scheduleWithFixedDelay kullan (tavsiye edilen yöntem)
+        // Use scheduleWithFixedDelay (recommended method)
         scheduler.scheduleWithFixedDelay(() -> {
             if (serialPort != null) {
-                // Sensor verisi iste
+                // Request sensor data
                 sendCommand("GET_SENSOR");
             }
-        }, 0, 1, TimeUnit.SECONDS); // Her saniye veri iste
+        }, 0, 1, TimeUnit.SECONDS); // Request data every second
     }
 
-    // Pompayı başlat
+    // Start pump
     private void startPump() {
         if (!isPumpRunning) {
-            // Pompa yönünü ayarla
+            // Set pump direction
             sendDirectionCommand(isForwardDirection);
 
-            // Pompa hızını ayarla
+            // Set pump speed
             sendSpeedCommand(pumpSpeed);
 
-            // Pompayı başlat
+            // Start pump
             sendCommand("START");
 
             isPumpRunning = true;
@@ -553,7 +548,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         }
     }
 
-    // Pompayı durdur
+    // Stop pump
     private void stopPump() {
         if (isPumpRunning) {
             sendCommand("STOP");
@@ -564,32 +559,32 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         }
     }
 
-    // Yön komutu gönder
+    // Send direction command
     private void sendDirectionCommand(boolean isForward) {
         String command = isForward ? "DIR_FWD" : "DIR_REV";
         sendCommand(command);
     }
 
-    // Hız komutu gönder
+    // Send speed command
     private void sendSpeedCommand(int speed) {
         String command = "SPEED_" + speed;
         sendCommand(command);
     }
 
-    // Komut gönder
+    // Send command
     private void sendCommand(String command) {
         if (serialPort != null) {
-            command += "\n"; // Satır sonu ekle (ESP32 tarafında ayrıştırma için)
+            command += "\n"; // Add line ending (for parsing on ESP32 side)
             try {
                 serialPort.write(command.getBytes(), 1000); // 1000ms timeout
-                Log.d(TAG, "Gönderilen komut: " + command.trim());
+                Log.d(TAG, "Sent command: " + command.trim());
             } catch (IOException e) {
-                Log.e(TAG, "Komut gönderme hatası", e);
+                Log.e(TAG, "Error sending command", e);
             }
         }
     }
 
-    // USB olayları için alıcı
+    // USB events receiver
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -601,28 +596,28 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
                     if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                         if (usbDevice != null) {
-                            // İzin verildi, seri porta bağlan
-                            Log.d(TAG, "USB izni verildi. Bağlanıyor...");
+                            // Permission granted, connect to serial port
+                            Log.d(TAG, "USB permission granted. Connecting...");
                             connectToSerialPort();
                         }
                     } else {
-                        Log.d(TAG, "USB izni reddedildi");
+                        Log.d(TAG, "USB permission denied");
                         tvConnectionStatus.setText(getString(R.string.connection_status_permission_denied));
                     }
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
-                // USB cihazı takıldı
-                Log.d(TAG, "USB cihazı takıldı");
+                // USB device attached
+                Log.d(TAG, "USB device attached");
                 findSerialPortDevice();
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                // USB cihazı çıkarıldı
-                Log.d(TAG, "USB cihazı çıkarıldı");
+                // USB device detached
+                Log.d(TAG, "USB device detached");
                 disconnect();
             }
         }
     };
 
-    // Bağlantıyı kapat
+    // Close connection
     private void disconnect() {
         if (serialIoManager != null) {
             serialIoManager.stop();
@@ -633,7 +628,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             try {
                 serialPort.close();
             } catch (IOException e) {
-                Log.e(TAG, "Seri port kapatma hatası", e);
+                Log.e(TAG, "Error closing serial port", e);
             }
             serialPort = null;
         }
@@ -656,7 +651,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         int id = item.getItemId();
 
         if (id == R.id.nav_pump_control) {
-            // Zaten bu sayfadayız, bir şey yapmaya gerek yok
+            // Already on this page, no action needed
         } else if (id == R.id.nav_graph) {
             Intent intent = new Intent(this, GraphActivity.class);
             startActivity(intent);
@@ -664,7 +659,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             Intent intent = new Intent(this, HistoryActivity.class);
             startActivity(intent);
         } else if (id == R.id.nav_measurements) {
-            // Ölçüm kayıtları sayfasına yönlendir
+            // Redirect to measurement records page
             Intent intent = new Intent(this, MeasurementsActivity.class);
             startActivity(intent);
         }
@@ -684,17 +679,17 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     @Override
     protected void onDestroy() {
-        // Süre sayacını durdur
+        // Stop duration counter
         stopDurationCounter();
 
-        // Uygulamadan çıkarken kaynakları temizle
+        // Clean up resources when exiting the app
         disconnect();
 
         try {
             unregisterReceiver(usbReceiver);
         } catch (IllegalArgumentException e) {
-            // Receiver zaten kayıtlı değilse
-            Log.d(TAG, "USB receiver zaten kayıtlı değil");
+            // Receiver not registered
+            Log.d(TAG, "USB receiver not registered");
         }
 
         ioExecutor.shutdown();

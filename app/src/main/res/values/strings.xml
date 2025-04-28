@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Şırınga Pompa Kontrolü</string>
+    <!-- Add or update these strings in your strings.xml file -->
+    <string name="app_name">Syringe Pump Controller</string>
+    <string name="connection_status_disconnected">Device not connected</string>
+    <string name="connection_status_connected">Device connected</string>
+    <string name="connection_status_error">Connection error</string>
+    <string name="connection_status_no_device">No compatible device found</string>
+    <string name="connection_status_permission_denied">USB permission denied</string>
+    <string name="speed_value">%d%%</string>
+    <string name="no_usb_connection">No USB connection</string>
 
     <!-- Navigation Drawer -->
-    <string name="navigation_drawer_open">Navigation drawer açık</string>
-    <string name="navigation_drawer_close">Navigation drawer kapalı</string>
-
-    <!-- Bağlantı durumları -->
-    <string name="connection_status_disconnected">USB Cihazı Bağlı Değil</string>
-    <string name="connection_status_connected">USB Cihazı Bağlandı</string>
-    <string name="connection_status_no_device">Uyumlu USB Cihazı Bulunamadı</string>
-    <string name="connection_status_permission_denied">USB İzni Reddedildi</string>
-    <string name="connection_status_error">Bağlantı hatası</string>
-
-    <!-- Pompa kontrolü -->
-    <string name="speed_value">%d%%</string>
-    <string name="no_usb_connection">USB bağlantısı yok!</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+    <string name="nav_pump_control">Pump Control</string>
+    <string name="nav_graph">Graph</string>
+    <string name="nav_history">History</string>
+    <string name="nav_measurements">Measurement Records</string>
 </resources>
