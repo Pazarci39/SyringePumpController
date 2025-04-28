@@ -8,16 +8,27 @@
     tools:context=".GraphActivity">
 
     <androidx.appcompat.widget.Toolbar
-        android:id="@+id/toolbar_graph"
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="?attr/colorPrimary"
         android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar" />
 
+    <TextView
+        android:id="@+id/tvMeasurementInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textAlignment="center"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:background="#E8E8E8"
+        android:text="Ölçüm Bilgileri" />
+
     <com.github.mikephil.charting.charts.LineChart
-        android:id="@+id/voltage_chart"
+        android:id="@+id/lineChart"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_margin="8dp" />
+        android:padding="8dp" />
 
 </LinearLayout>

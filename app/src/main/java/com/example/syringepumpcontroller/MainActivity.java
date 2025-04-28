@@ -13,9 +13,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.MenuItem;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.SeekBar;
@@ -63,6 +65,8 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private RadioGroup radioGroupDirection;
     private Button btnStart, btnStop;
     private TableLayout tableSensorData;
+    private EditText editTextNotes; // Notlar için EditText
+    private Button btnShowMeasurements; // Ölçüm kayıtlarını göstermek için buton
 
     // Navigation Drawer
     private DrawerLayout drawerLayout;
@@ -87,6 +91,14 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     // Veri okuma için zamanlanmış görev
     private ScheduledExecutorService scheduler;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // Veritabanı yardımcısı
+    private DatabaseHelper dbHelper;
+
+    // Ölçüm zamanlaması için değişkenler
+    private long pumpStartTime = 0; // Pompa başlangıç zamanı
+    private float lastSensorValue = 0; // Son okunan sensör değeri
+    private TextView tvDuration; // Süre gösterimi için TextView
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +126,9 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         } else {
             registerReceiver(usbReceiver, filter);
         }
+
+        // Veritabanı yardımcısını başlat
+        dbHelper = new DatabaseHelper(this);
 
         // Cihazı otomatik olarak algılamaya çalış
         findSerialPortDevice();
@@ -147,6 +162,24 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
         tableSensorData = findViewById(R.id.tableSensorData);
+
+        // Not alanını ve ölçüm kayıtları butonunu bulalım
+        editTextNotes = findViewById(R.id.editTextNotes);
+        btnShowMeasurements = findViewById(R.id.btnShowMeasurements);
+
+        // Süre gösterimi için TextView'ı bul (layout'a eklemeniz gerekecek)
+        tvDuration = findViewById(R.id.tvDuration);
+        if (tvDuration != null) {
+            tvDuration.setText("00:00:00");
+        }
+
+        // Ölçüm kayıtları butonuna tıklama olayı
+        if (btnShowMeasurements != null) {
+            btnShowMeasurements.setOnClickListener(v -> {
+                Intent intent = new Intent(MainActivity.this, MeasurementsActivity.class);
+                startActivity(intent);
+            });
+        }
 
         // Hız değişim olayı
         seekBarSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -185,6 +218,12 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                 return;
             }
 
+            // Pompa başlangıç zamanını kaydet
+            pumpStartTime = SystemClock.elapsedRealtime();
+
+            // Süre sayacını başlat
+            startDurationCounter();
+
             startPump();
         });
 
@@ -196,7 +235,123 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             }
 
             stopPump();
+
+            // Süre sayacını durdur
+            stopDurationCounter();
+
+            // Pompa durdurulduğunda ölçümü kaydet
+            saveMeasurement();
         });
+    }
+
+    // Süre sayacı için Handler ve Runnable
+    private Handler durationHandler = new Handler(Looper.getMainLooper());
+    private Runnable durationRunnable;
+
+    // Süre sayacını başlat
+    private void startDurationCounter() {
+        if (durationRunnable != null) {
+            durationHandler.removeCallbacks(durationRunnable);
+        }
+
+        durationRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isPumpRunning && tvDuration != null) {
+                    long elapsedMillis = SystemClock.elapsedRealtime() - pumpStartTime;
+                    updateDurationDisplay(elapsedMillis);
+                    durationHandler.postDelayed(this, 1000); // Her saniye güncelle
+                }
+            }
+        };
+
+        durationHandler.post(durationRunnable);
+    }
+
+    // Süre sayacını durdur
+    private void stopDurationCounter() {
+        if (durationRunnable != null) {
+            durationHandler.removeCallbacks(durationRunnable);
+        }
+    }
+
+    // Süre gösterimini güncelle
+    private void updateDurationDisplay(long elapsedMillis) {
+        if (tvDuration != null) {
+            int seconds = (int) (elapsedMillis / 1000) % 60;
+            int minutes = (int) ((elapsedMillis / (1000 * 60)) % 60);
+            int hours = (int) ((elapsedMillis / (1000 * 60 * 60)) % 24);
+
+            String durationStr = String.format(Locale.getDefault(),
+                    "%02d:%02d:%02d", hours, minutes, seconds);
+            tvDuration.setText(durationStr);
+        }
+    }
+
+    // Ölçümü kaydetme metodu
+    private void saveMeasurement() {
+        if (pumpStartTime == 0) {
+            Toast.makeText(this, "Ölçüm kaydedilemedi: Geçersiz başlangıç zamanı", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Şu anki tarih ve zamanı alın
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        String currentDateTime = sdf.format(new Date());
+
+        // Pompa çalışma süresini hesapla
+        long elapsedMillis = SystemClock.elapsedRealtime() - pumpStartTime;
+        int seconds = (int) (elapsedMillis / 1000) % 60;
+        int minutes = (int) ((elapsedMillis / (1000 * 60)) % 60);
+        int hours = (int) ((elapsedMillis / (1000 * 60 * 60)) % 24);
+
+        String duration = String.format(Locale.getDefault(),
+                "%02d:%02d:%02d", hours, minutes, seconds);
+
+        // Not alanı yoksa boş string olarak al
+        String notes = (editTextNotes != null) ? editTextNotes.getText().toString() : "";
+
+        // Akış hızı ve sensör değerlerini al
+        double flowRate = pumpSpeed; // SeekBar'dan alınan hız değeri
+
+        // Gerçek hacim hesaplama (Hacim = Akış Hızı × Süre / 3600)
+        // Not: Akış hızı ml/saat, süre saniye cinsindendir
+        double totalTimeInHours = elapsedMillis / (1000.0 * 60.0 * 60.0); // milisaniyeyi saate çevir
+        double volume = flowRate * totalTimeInHours; // ml cinsinden hacim
+
+        // Son sensor değerini kullanabilirsiniz (isteğe bağlı)
+        // Alternatif olarak, sensör ölçümlerinden gelen verileri kullanabilirsiniz
+
+        // Ölçüm nesnesi oluştur
+        Measurement measurement = new Measurement(
+                currentDateTime,
+                flowRate,
+                volume,
+                duration,
+                notes
+        );
+
+        // Veritabanına kaydet
+        long id = dbHelper.addMeasurement(measurement);
+
+        if (id != -1) {
+            Toast.makeText(this, "Ölçüm başarıyla kaydedildi!", Toast.LENGTH_SHORT).show();
+
+            // Not alanını temizle (eğer varsa)
+            if (editTextNotes != null) {
+                editTextNotes.setText("");
+            }
+
+            // Süre gösterimini sıfırla
+            if (tvDuration != null) {
+                tvDuration.setText("00:00:00");
+            }
+
+            // Başlangıç zamanını sıfırla
+            pumpStartTime = 0;
+        } else {
+            Toast.makeText(this, "Ölçüm kaydedilirken hata oluştu!", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // USB cihazını bul
@@ -300,6 +455,13 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
             // Gelen veriyi işle
             if (dataStr.startsWith("SV:")) { // Sensor Value
+                // Sensor değerini kaydet
+                try {
+                    lastSensorValue = Float.parseFloat(dataStr.substring(3).trim());
+                } catch (NumberFormatException e) {
+                    Log.e(TAG, "Sensor değeri ayrıştırma hatası", e);
+                }
+
                 processAndDisplaySensorData(dataStr);
             }
         } catch (Exception e) {
@@ -501,6 +663,10 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         } else if (id == R.id.nav_history) {
             Intent intent = new Intent(this, HistoryActivity.class);
             startActivity(intent);
+        } else if (id == R.id.nav_measurements) {
+            // Ölçüm kayıtları sayfasına yönlendir
+            Intent intent = new Intent(this, MeasurementsActivity.class);
+            startActivity(intent);
         }
 
         drawerLayout.closeDrawer(GravityCompat.START);
@@ -518,6 +684,9 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     @Override
     protected void onDestroy() {
+        // Süre sayacını durdur
+        stopDurationCounter();
+
         // Uygulamadan çıkarken kaynakları temizle
         disconnect();
 

@@ -1,15 +1,17 @@
 package com.example.syringepumpcontroller;
 
+import android.content.pm.ActivityInfo;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.view.MenuItem;
+import android.view.WindowManager;
+import android.widget.TextView;
+
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
-import android.graphics.Color;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-
 import com.github.mikephil.charting.charts.LineChart;
-import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.Description;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
@@ -17,164 +19,188 @@ import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.formatter.ValueFormatter;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 public class GraphActivity extends AppCompatActivity {
-    private LineChart voltageChart;
-    private ArrayList<Entry> voltageEntries;
-    private Random random = new Random();
-    private int timeCounter = 0;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable updateDataRunnable;
+
+    private LineChart chart;
+    private TextView tvMeasurementInfo;
+    private int measurementId = -1;
+    private String dateTime = "";
+    private double flowRate = 0;
+    private double volume = 0;
+    private String duration = "";
+    private String notes = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Ekranı yatay moduna zorla
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
         setContentView(R.layout.activity_graph);
 
         // Toolbar'ı ayarla
-        Toolbar toolbar = findViewById(R.id.toolbar_graph);
+        Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        getSupportActionBar().setTitle("Voltaj Grafiği");
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        getSupportActionBar().setDisplayShowHomeEnabled(true);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle("Ölçüm Grafiği");
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
 
-        toolbar.setNavigationOnClickListener(v -> onBackPressed());
+        // UI bileşenlerini başlat
+        chart = findViewById(R.id.lineChart);
+        tvMeasurementInfo = findViewById(R.id.tvMeasurementInfo);
 
-        // Grafik ayarlarını yap
-        voltageChart = findViewById(R.id.voltage_chart);
-        setupChart();
+        // Intent'ten verileri al
+        if (getIntent().hasExtra("MEASUREMENT_ID")) {
+            measurementId = getIntent().getIntExtra("MEASUREMENT_ID", -1);
+            dateTime = getIntent().getStringExtra("MEASUREMENT_DATETIME");
+            flowRate = getIntent().getDoubleExtra("MEASUREMENT_FLOW_RATE", 0);
+            volume = getIntent().getDoubleExtra("MEASUREMENT_VOLUME", 0);
+            duration = getIntent().getStringExtra("MEASUREMENT_DURATION");
+            notes = getIntent().getStringExtra("MEASUREMENT_NOTES");
 
-        // Örnek veri oluştur
-        createSampleData();
+            // Ölçüm bilgilerini göster
+            showMeasurementInfo();
 
-        // Simülasyon için veri güncelleme zamanlayıcısını başlat
-        startDataUpdates();
+            // Grafiği hazırla
+            setupChart();
+        }
+    }
+
+    private void showMeasurementInfo() {
+        String infoText = String.format(Locale.getDefault(),
+                "Tarih: %s | Akış Hızı: %.2f mL/h | Hacim: %.2f mL | Süre: %s",
+                dateTime, flowRate, volume, duration);
+
+        tvMeasurementInfo.setText(infoText);
     }
 
     private void setupChart() {
-        voltageChart.getDescription().setEnabled(false);
-        voltageChart.setTouchEnabled(true);
-        voltageChart.setDragEnabled(true);
-        voltageChart.setScaleEnabled(true);
-        voltageChart.setPinchZoom(true);
-        voltageChart.setDrawGridBackground(false);
+        // Grafiği yapılandır
+        chart.setDrawGridBackground(false);
+        chart.setBackgroundColor(Color.WHITE);
+        chart.setDrawBorders(true);
 
-        // X ekseni ayarları
-        XAxis xAxis = voltageChart.getXAxis();
+        // Açıklama ekle
+        Description description = new Description();
+        description.setText("Zaman (saniye) - Hacim (mL)");
+        description.setTextSize(12f);
+        chart.setDescription(description);
+
+        // X ekseni (zaman) ayarları
+        XAxis xAxis = chart.getXAxis();
         xAxis.setPosition(XAxis.XAxisPosition.BOTTOM);
-        xAxis.setDrawGridLines(true);
-        xAxis.setGranularity(1f);
-        xAxis.setLabelCount(10);
+        xAxis.setGranularity(15f); // 15 saniyelik aralıklar
+        xAxis.setLabelRotationAngle(0);
         xAxis.setValueFormatter(new ValueFormatter() {
             @Override
             public String getFormattedValue(float value) {
-                return String.format("%.0fs", value);
+                return String.format(Locale.getDefault(), "%.0fs", value);
             }
         });
 
-        // Sol Y ekseni ayarları
-        YAxis leftAxis = voltageChart.getAxisLeft();
-        leftAxis.setDrawGridLines(true);
-        leftAxis.setAxisMinimum(0f);
-        leftAxis.setAxisMaximum(5f); // Arduino analog giriş için 0-5V
+        // Y ekseni (hacim) ayarları
+        YAxis leftAxis = chart.getAxisLeft();
+        leftAxis.setGranularity(0.1f);
         leftAxis.setValueFormatter(new ValueFormatter() {
             @Override
             public String getFormattedValue(float value) {
-                return String.format("%.1fV", value);
+                return String.format(Locale.getDefault(), "%.1f mL", value);
             }
         });
 
-        // Sağ Y ekseni gizle
-        voltageChart.getAxisRight().setEnabled(false);
+        chart.getAxisRight().setEnabled(false); // Sağ ekseni devre dışı bırak
 
-        // Gösterge (legend) ayarları
-        Legend legend = voltageChart.getLegend();
-        legend.setForm(Legend.LegendForm.LINE);
-        legend.setTextSize(11f);
-        legend.setVerticalAlignment(Legend.LegendVerticalAlignment.BOTTOM);
-        legend.setHorizontalAlignment(Legend.LegendHorizontalAlignment.LEFT);
-        legend.setOrientation(Legend.LegendOrientation.HORIZONTAL);
-        legend.setDrawInside(false);
+        // Veri noktaları oluştur (simüle edilen veriler)
+        createAndSetChartData();
+
+        // Animasyon ekle
+        chart.animateX(1000);
     }
 
-    private void createSampleData() {
-        voltageEntries = new ArrayList<>();
+    private void createAndSetChartData() {
+        // Simüle edilmiş veri noktaları oluştur
+        List<Entry> entries = new ArrayList<>();
 
-        // Örnek veri için ilk 10 nokta ekle
-        for (int i = 0; i < 10; i++) {
-            float value = random.nextFloat() * 4.0f + 0.5f; // 0.5V ile 4.5V arası
-            voltageEntries.add(new Entry(i, value));
-            timeCounter = i;
+        // Süreyi saniyeye çevir
+        int durationInSeconds = parseDurationToSeconds(duration);
+        if (durationInSeconds <= 0) durationInSeconds = 300; // Varsayılan 5 dakika
+
+        // Akış hızını ve hacmi kullanarak gerçekçi veri noktaları oluştur
+        // Formül: Hacim = Akış Hızı * (Süre / 3600) [mL/saat'i mL/saniye'ye çevirmek için]
+        double flowRatePerSecond = flowRate / 3600.0;
+
+        Random random = new Random();
+        double currentVolume = 0;
+
+        // 15 saniyelik aralıklarla veri noktaları oluştur
+        for (int time = 0; time <= durationInSeconds; time += 15) {
+            // Gerçek hesaplanan hacim
+            double calculatedVolume = flowRatePerSecond * time;
+
+            // Gerçekçi olmak için küçük rastgele sapmalar ekle (%2 sapma)
+            double randomFactor = 1.0 + (random.nextDouble() * 0.04 - 0.02);
+            currentVolume = calculatedVolume * randomFactor;
+
+            // Toplam hacmi geçmemesini sağla
+            if (currentVolume > volume) {
+                currentVolume = volume;
+            }
+
+            entries.add(new Entry(time, (float)currentVolume));
         }
 
-        // Veri setini oluştur
-        LineDataSet voltageDataSet = new LineDataSet(voltageEntries, "Voltaj (V)");
-        voltageDataSet.setColor(Color.BLUE);
-        voltageDataSet.setCircleColor(Color.BLUE);
-        voltageDataSet.setLineWidth(2f);
-        voltageDataSet.setCircleRadius(3f);
-        voltageDataSet.setDrawCircleHole(false);
-        voltageDataSet.setValueTextSize(9f);
-        voltageDataSet.setDrawValues(false);
-        voltageDataSet.setHighlightEnabled(true);
-        voltageDataSet.setDrawFilled(true);
-        voltageDataSet.setFillColor(Color.parseColor("#80BDBDFF"));
+        // Son noktayı ekle
+        entries.add(new Entry(durationInSeconds, (float)volume));
 
-        // LineData oluştur ve grafiğe ayarla
-        LineData lineData = new LineData(voltageDataSet);
-        voltageChart.setData(lineData);
+        // Veri setini oluştur ve özelleştir
+        LineDataSet dataSet = new LineDataSet(entries, "Hacim (mL)");
+        dataSet.setColor(Color.BLUE);
+        dataSet.setCircleColor(Color.BLUE);
+        dataSet.setCircleRadius(3f);
+        dataSet.setDrawCircleHole(false);
+        dataSet.setLineWidth(2f);
+        dataSet.setDrawValues(false);
+        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
 
-        // Grafiği güncelle
-        voltageChart.invalidate();
+        // Veriyi grafiğe ayarla
+        LineData lineData = new LineData(dataSet);
+        chart.setData(lineData);
+        chart.invalidate(); // Grafiği yenile
     }
 
-    private void startDataUpdates() {
-        updateDataRunnable = new Runnable() {
-            @Override
-            public void run() {
-                // Yeni veri noktası ekle (gerçekte USB'den alınacak)
-                timeCounter++;
-                float newValue = random.nextFloat() * 4.0f + 0.5f; // 0.5V ile 4.5V arası
-                voltageEntries.add(new Entry(timeCounter, newValue));
+    // Süre formatını (HH:mm:ss) saniyelere çevirme
+    private int parseDurationToSeconds(String durationStr) {
+        try {
+            String[] parts = durationStr.split(":");
+            int hours = Integer.parseInt(parts[0]);
+            int minutes = Integer.parseInt(parts[1]);
+            int seconds = Integer.parseInt(parts[2]);
 
-                // Veri setini güncelle
-                LineDataSet dataSet = (LineDataSet) voltageChart.getData().getDataSetByIndex(0);
-                dataSet.notifyDataSetChanged();
-                voltageChart.getData().notifyDataChanged();
-                voltageChart.notifyDataSetChanged();
-
-                // Grafiğe otomatik kaydırma
-                voltageChart.setVisibleXRangeMaximum(20); // Son 20 veri noktasını göster
-                voltageChart.moveViewToX(timeCounter - 19); // En sona kaydır
-
-                // 500ms sonra tekrar çalıştır
-                handler.postDelayed(this, 500);
-            }
-        };
-
-        // İlk çalıştırma
-        handler.postDelayed(updateDataRunnable, 500);
+            return hours * 3600 + minutes * 60 + seconds;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 300; // Hata durumunda varsayılan 5 dakika
+        }
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        // Activity duraklatıldığında güncellemeyi durdur
-        handler.removeCallbacks(updateDataRunnable);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // Activity devam ettiğinde güncellemeyi yeniden başlat
-        handler.postDelayed(updateDataRunnable, 500);
-    }
-
-    @Override
-    public boolean onSupportNavigateUp() {
-        onBackPressed();
-        return true;
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == android.R.id.home) {
+            onBackPressed();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 }

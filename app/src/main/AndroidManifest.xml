@@ -15,14 +15,22 @@
         android:theme="@style/Theme.SyringePumpController"
         tools:targetApi="31">
         <activity
+            android:name=".MeasurementsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:label="Ölçüm Kayıtları" />
+        <activity
             android:name=".HistoryActivity"
             android:exported="false" />
         <activity
             android:name=".GraphActivity"
             android:exported="false" />
+        <!-- AndroidManifest.xml dosyasında MainActivity tanımınızı şu şekilde güncelleyin: -->
+
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
